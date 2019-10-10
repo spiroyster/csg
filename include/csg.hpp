@@ -46,12 +46,13 @@ namespace csg
 	{
 		const static double pi = 3.14159265358979323846264338327950288;
 		
-		// vector operations...
+		// vertex operations...
 		static double magnitude(const vertex& v) { return sqrt((v.x_ * v.x_) + (v.y_ * v.y_) + (v.z_ * v.z_)); }
 		static vertex unitise(const vertex& v) { double oneOverMagnitude = 1.0 / magnitude(v); return vertex(v.x_ * oneOverMagnitude, v.y_ * oneOverMagnitude, v.z_ * oneOverMagnitude); }
 		static vertex cross(const vertex& a, const vertex& b) { return vertex((a.y_ * b.z_) - (a.z_ * b.y_), (a.z_ * b.x_) - (a.x_ * b.z_), (a.x_ * b.y_) - (a.y_ * b.x_)); }
 		static double dot(const vertex& a, const vertex& b) { return (a.x_ * b.x_) + (a.y_ * b.y_) + (a.z_ * b.z_); }
-		static bool equals(const vertex& a, const vertex& b, double e) { return (abs(a.x_ - b.x_) < e && abs(a.y_ - b.y_) < e && abs(a.z_ - b.z_) < e); }
+		static bool equals(const vertex& a, const vertex& b, double tolerance) { return (abs(a.x_ - b.x_) < tolerance && abs(a.y_ - b.y_) < tolerance && abs(a.z_ - b.z_) < tolerance); }
+		//static bool equals(const vertex& a, const vertex& b, double tolerance) { return abs(magnitude(subtract(b, a))) < tolerance; }
 		static bool equals(const vertex& a, const vertex& b) { return (a.x_ == b.x_ && a.y_ == b.y_ && a.z_ == b.z_); }
 		static vertex add(const vertex& a, const vertex& b) { return vertex(a.x_ + b.x_, a.y_ + b.y_, a.z_ + b.z_); }
 		static vertex subtract(const vertex& a, const vertex& b) { return vertex(a.x_ - b.x_, a.y_ - b.y_, a.z_ - b.z_); }
@@ -62,16 +63,9 @@ namespace csg
 		static vertex centroid(const vertex& a, const vertex& b, const vertex& c) { return vertex((a.x_ + b.x_ + c.x_) / 3, (a.y_ + b.y_ + c.y_) / 3, (a.z_ + b.z_ + c.z_) / 3); }
 		static bool sameSide(const vertex& p1, const vertex& p2, const vertex& a, const vertex& b) { return dot(cross(subtract(b, a), subtract(p1, a)), cross(subtract(b, a), subtract(p2, a))) >= 0; }
 		static bool pointWithinTriangle(const vertex& a, const vertex& b, const vertex& c, const vertex& p) { return sameSide(p, a, b, c) && sameSide(p, b, a, c) && sameSide(p, c, a, b); }
-		static bool pointOnLineSegment(const vertex& i, const vertex& j, const vertex& p) { return abs(magnitude(subtract(p, i)) + magnitude(subtract(p, j)) - magnitude(subtract(i, j))) < 0.001; }
+		static bool pointOnLineSegment(const vertex& i, const vertex& j, const vertex& p, double tolerance) { return abs(magnitude(subtract(p, i)) + magnitude(subtract(p, j)) - magnitude(subtract(i, j))) < tolerance; }
 		static vertex midPoint(const vertex& i, const vertex& j) { return vertex((i.x_ + j.x_) * 0.5, (i.y_ + j.y_) * 0.5, (i.z_ + j.z_) * 0.5); }
-		static double arcCosine(double val)
-		{
-			if (val <= -1.0f)
-				return pi;
-			if (val >= 1.0f)
-				return 0;
-			return acos(val);
-		}
+		static double arcCosine(double val) { if (val <= -1.0) { return pi; } if (val >= 1.0) { return 0; } return acos(val); }
 		static vertex rodrigues(const vertex& v, const vertex& axis, double angle)
 		{
 			double c = cos(angle);
@@ -79,11 +73,190 @@ namespace csg
 			vRot = add(scale(cross(axis, v), sin(angle)), vRot);
 			return add(scale(axis, dot(axis, v) * (1 - c)), vRot);
 		}
-		static void flip(triangle& t)
+		static void flip(triangle& t) { vertex tmp = t.c_; t.c_ = t.a_; t.a_ = tmp; }
+
+		enum ioop { inside, outside, onPlane };
+
+
+		namespace sanitise
 		{
-			vertex tmp = t.c_; t.c_ = t.a_; t.a_ = tmp;
+			const vertex* vertexProximity(const triangle& t, const vertex& v, double tolerance)
+			{
+				if (equals(t.a_, v, tolerance))
+					return &t.a_;
+				if (equals(t.b_, v, tolerance))
+					return &t.b_;
+				if (equals(t.c_, v, tolerance))
+					return &t.c_;
+				return 0;
+			}
+
+			// we cannot work with bad triangles...
+			void triangles(mesh& m, double tolerance)
+			{
+				std::list<triangle> triangles(m.begin(), m.end());
+				std::list<std::list<triangle>::iterator> badTriangles;
+
+				for (std::list<triangle>::iterator tItr = triangles.begin(); tItr != triangles.end(); ++tItr)
+					if (equals(tItr->a_, tItr->b_, tolerance) || equals(tItr->a_, tItr->b_, tolerance) || equals(tItr->a_, tItr->b_, tolerance))
+						badTriangles.push_back(tItr);
+				
+				std::for_each(badTriangles.begin(), badTriangles.end(), [&triangles](std::list<triangle>::iterator& badTri) { triangles.erase(badTri); });
+				m = std::vector<triangle>(triangles.begin(), triangles.end());
+			}
 		}
 
+		
+
+		namespace intersection
+		{
+			struct splitResult { std::vector<triangle> outside_; std::vector<triangle> inside_; };
+
+			// triangle/plane intersection...
+			class trianglePlane
+			{
+			public:
+				trianglePlane(const triangle* T, const vertex& p, const vertex& n)
+					: directions_(vertex(directionFromPlane(p, n, T->a_), directionFromPlane(p, n, T->b_), directionFromPlane(p, n, T->c_)))
+				{
+				}
+
+				bool entirelyOutside() const { return directions_.x_ > 0 && directions_.y_ > 0 && directions_.z_ > 0; }
+				bool entirelyInside() const { return directions_.x_ < 0 && directions_.y_ < 0 && directions_.z_ < 0; }
+				bool onPlane() const { return !directions_.x_ && !directions_.y_ && !directions_.z_; }
+				bool edgeABOnPlane() const { return !directions_.x_ && !directions_.y_ && directions_.z_; }
+				bool edgeBCOnPlane() const { return directions_.x_ && !directions_.y_ && !directions_.z_; }
+				bool edgeCAOnPlane() const { return !directions_.x_ && directions_.y_ && !directions_.z_; }
+				bool majorABminorC() const { return (directions_.x_ > 0 && directions_.y_ > 0 && directions_.z_ < 0) || (directions_.x_ < 0 && directions_.y_ < 0 && directions_.z_ > 0); }
+				bool majorBCminorA() const { return (directions_.x_ < 0 && directions_.y_ > 0 && directions_.z_ > 0) || (directions_.x_ > 0 && directions_.y_ < 0 && directions_.z_ < 0); }
+				bool majorCAminorB() const { return (directions_.x_ < 0 && directions_.y_ > 0 && directions_.z_ < 0) || (directions_.x_ > 0 && directions_.y_ < 0 && directions_.z_ > 0); }
+				double a() const { return directions_.x_; }
+				double b() const { return directions_.y_; }
+				double c() const { return directions_.z_; }
+			protected:
+				vertex directions_;
+			};
+
+			vertex segmentPlaneIntersection(const vertex& i, const vertex& j, const vertex& pP, const vertex& pN) 
+			{ 
+				vertex ijUnitised = unitise(subtract(j, i));
+				double dotrDpN = dot(ijUnitised, pN);
+				if (!std::isnan(dotrDpN) && dotrDpN) 
+					return rayPlaneIntersection(i, ijUnitised, pP, pN, dotrDpN);
+				else 
+					throw std::exception("no edge plane intersection.");
+			}
+
+			
+
+			//bool checkProximity(const trianglePlane& intersectionInfo, const triangle& t, const vertex& i, const vertex& j, splitResult& result)
+			//{
+			//	const vertex* iPoximity = vertexProximity(t, i, 0.001);
+			//	const vertex* jPoximity = vertexProximity(t, j, 0.001);
+
+			//	if (iPoximity && jPoximity)
+			//	{
+			//		if ((iPoximity == &t.a_ && jPoximity == &t.b_) || (iPoximity == &t.b_ && jPoximity == &t.a_))
+			//		{
+			//			if (intersectionInfo.c() > 0)
+			//				result.outside_.push_back(triangle(t.c_, iPoximity == &t.a_ ? i : j, iPoximity == &t.a_ ? j : i));
+			//			else
+			//				result.inside_.push_back(triangle(t.c_, iPoximity == &t.a_ ? i : j, iPoximity == &t.a_ ? j : i));
+			//		}
+			//		if ((iPoximity == &t.b_ && jPoximity == &t.c_) || (iPoximity == &t.c_ && jPoximity == &t.b_))
+			//		{
+			//			if (intersectionInfo.a() > 0)
+			//				result.outside_.push_back(triangle(t.a_, iPoximity == &t.b_ ? i : j, iPoximity == &t.b_ ? j : i));
+			//			else
+			//				result.inside_.push_back(triangle(t.a_, iPoximity == &t.b_ ? i : j, iPoximity == &t.b_ ? j : i));
+			//		}
+			//		/*if ((iPoximity == &t.a_ && jPoximity == &t.b_) || (iPoximity == &t.b_ && jPoximity == &t.a_))
+			//		{
+			//			if (intersectionInfo.c() > 0)
+			//				result.outside_.push_back(triangle(t.c_, iPoximity == &t.a_ ? i : j, iPoximity == &t.a_ ? j : i));
+			//			else
+			//				result.inside_.push_back(triangle(t.c_, iPoximity == &t.a_ ? i : j, iPoximity == &t.a_ ? j : i));
+			//		}*/
+			//		return true;
+			//	}
+			//	return false;
+			//}
+			
+			splitResult splitTriangle(const trianglePlane& intersectionInfo, const triangle& t, const vertex& tN, const vertex& pP, const vertex& pN)
+			{
+				assert(!intersectionInfo.entirelyInside());
+				assert(!intersectionInfo.entirelyOutside());
+				assert(!intersectionInfo.onPlane());
+				assert(!intersectionInfo.edgeABOnPlane());
+				assert(!intersectionInfo.edgeBCOnPlane());
+				assert(!intersectionInfo.edgeCAOnPlane());
+
+				splitResult result;
+				vertex i, j;
+				if (intersectionInfo.majorABminorC())
+				{
+					i = segmentPlaneIntersection(t.a_, t.c_, pP, pN);
+					j = segmentPlaneIntersection(t.b_, t.c_, pP, pN);					
+					if (directionFromPlane(pP, pN, t.a_) > 0)
+					{
+						result.outside_.push_back(triangle(t.a_, i, t.b_));
+						result.outside_.push_back(triangle(i, j, t.b_));
+						result.inside_.push_back(triangle(t.c_, j, i));
+					}
+					else
+					{
+						result.inside_.push_back(triangle(t.a_, i, t.b_));
+						result.inside_.push_back(triangle(i, j, t.b_));
+						result.outside_.push_back(triangle(t.c_, j, i));
+					}
+				}
+				else if (intersectionInfo.majorBCminorA())
+				{
+					i = segmentPlaneIntersection(t.b_, t.a_, pP, pN);
+					j = segmentPlaneIntersection(t.c_, t.a_, pP, pN);
+					if (directionFromPlane(pP, pN, t.b_) > 0)
+					{
+						result.outside_.push_back(triangle(t.b_, j, i));
+						result.outside_.push_back(triangle(t.c_, j, t.b_));
+						result.inside_.push_back(triangle(t.a_, i, j));
+					}
+					else
+					{
+						result.inside_.push_back(triangle(t.b_, j, i));
+						result.inside_.push_back(triangle(t.c_, j, t.b_));
+						result.outside_.push_back(triangle(t.a_, i, j));
+					}
+				}
+				else if (intersectionInfo.majorCAminorB())
+				{
+					i = segmentPlaneIntersection(t.a_, t.b_, pP, pN);
+					j = segmentPlaneIntersection(t.c_, t.b_, pP, pN);
+					if (directionFromPlane(pP, pN, t.a_) > 0)
+					{
+						result.outside_.push_back(triangle(t.a_, i, t.c_));
+						result.outside_.push_back(triangle(i, j, t.c_));
+						result.inside_.push_back(triangle(t.b_, j, i));
+					}
+					else
+					{
+						result.inside_.push_back(triangle(t.a_, i, t.c_));
+						result.inside_.push_back(triangle(i, j, t.c_));
+						result.outside_.push_back(triangle(t.b_, j, i));
+					}
+				}
+				else
+					throw std::exception("cannot split triangle.");
+
+				// do we need this?
+				std::for_each(result.inside_.begin(), result.inside_.end(), [&tN](triangle& t) { if (!equals(normal(t), tN)) { flip(t); } });
+				std::for_each(result.outside_.begin(), result.outside_.end(), [&tN](triangle& t) { if (!equals(normal(t), tN)) { flip(t); } });
+
+				return result;
+			}
+
+
+		}
+		
 		// bsp tree...
 		class bsp
 		{
@@ -91,7 +264,7 @@ namespace csg
 			class node : public triangle
 			{
 			public:
-				node(const triangle& t) : triangle(t.a_, t.b_, t.c_), normal_(normal(t)) { if (std::isnan(normal_.x_) || std::isnan(normal_.y_) || std::isnan(normal_.z_)) { throw std::exception("Unable to calculate normal correctly."); } }
+				node(const triangle& t) : triangle(t.a_, t.b_, t.c_), normal_(normal(t)) { if (std::isnan(normal_.x_) || std::isnan(normal_.y_) || std::isnan(normal_.z_)) { throw std::exception("unable to calculate bsp node normal."); } }
 				vertex triangleIntersection(const triangle& t) const { return vertex(directionFromPlane(p(), n(), t.a_), directionFromPlane(p(), n(), t.b_), directionFromPlane(p(), n(), t.c_)); }
 				vertex calculateIntersection(const vertex& a, const vertex& b) { vertex rD = unitise(subtract(b, a)); return rayPlaneIntersection(a, rD, a_, normal_, dot(rD, normal_)); }
 				const vertex& p() const { return a_; }
@@ -102,6 +275,7 @@ namespace csg
 				vertex normal_;
 			};
 
+			// assume all triangles are well-formed...
 			bsp(const mesh& m)
 			{
 				// create a working list of the triangles. We validate as we go along.
@@ -342,9 +516,277 @@ namespace csg
 				return result;
 			}
 
-			
+
 			std::unique_ptr<node> root_;
 		};
+
+
+
+
+
+
+		//// bsp tree...
+		//class bsp
+		//{
+		//public:
+		//	class node : public triangle
+		//	{
+		//	public:
+		//		node(const triangle& t) : triangle(t.a_, t.b_, t.c_), normal_(normal(t)) { if (std::isnan(normal_.x_) || std::isnan(normal_.y_) || std::isnan(normal_.z_)) { throw std::exception("unable to calculate bsp node normal."); } }
+		//		vertex triangleIntersection(const triangle& t) const { return vertex(directionFromPlane(p(), n(), t.a_), directionFromPlane(p(), n(), t.b_), directionFromPlane(p(), n(), t.c_)); }
+		//		vertex calculateIntersection(const vertex& a, const vertex& b) { vertex rD = unitise(subtract(b, a)); return rayPlaneIntersection(a, rD, a_, normal_, dot(rD, normal_)); }
+		//		const vertex& p() const { return a_; }
+		//		const vertex& n() const { return normal_; }
+		//		std::unique_ptr<node> inside_;
+		//		std::unique_ptr<node> outside_;
+		//	private:
+		//		vertex normal_;
+		//	};
+
+		//	// assume all triangles are well-formed...
+		//	bsp(const mesh& m)
+		//	{
+		//		// create a working list of the triangles. We validate as we go along.
+		//		std::list<triangle> workingTriangles(m.begin(), m.end());
+
+		//		// get the first valid triangle...
+		//		while (!validateTriangle(workingTriangles.front()))
+		//			workingTriangles.pop_front();
+
+		//		// create out node with it...
+		//		root_.reset(new node(workingTriangles.front()));
+
+		//		while (!workingTriangles.empty())
+		//		{
+		//			// get the next valid working triangle...
+		//			while (!validateTriangle(workingTriangles.front()))
+		//				workingTriangles.pop_front();
+		//			std::list<triangle>::iterator currentTriangle = workingTriangles.begin();
+
+		//			// traverse the tree to find the location to place this triangle/node.
+		//			node* currentNode = root_.get();
+
+		//			while (currentNode)
+		//			{
+		//				// calculate the currentTriangle intersection of the currentNode.
+		//				vertex nodeIntersectionDirections = currentNode->triangleIntersection(*currentTriangle);
+
+		//				// if the current triangle is outside the current node (triangle)...
+		//				if (nodeIntersectionDirections.x_ > 0 && nodeIntersectionDirections.y_ > 0 && nodeIntersectionDirections.z_ > 0)
+		//					currentNode = followOutsideNode(currentNode, *currentTriangle);
+		//				// if the current triangle is inside or on the plane of the current node (triangle)...
+		//				else if (nodeIntersectionDirections.x_ <= 0 && nodeIntersectionDirections.y_ <= 0 && nodeIntersectionDirections.z_ <= 0)
+		//					currentNode = followInsideNode(currentNode, *currentTriangle);
+		//				else
+		//				{
+		//					// otherwise the current triangle straddles the current node somehow so we need to split the triangle...
+		//					splitResult splitTriangles = splitTriangle(nodeIntersectionDirections, currentNode, *currentTriangle);
+
+		//					// invalid triangles won't be added, so we need to check there is only one triangle in the split...
+		//					unsigned int workingTriangleCount = static_cast<unsigned int>(workingTriangles.size());
+
+		//					if (splitTriangles.inside_.size() == 1 && splitTriangles.outside_.empty())
+		//						currentNode = followInsideNode(currentNode, *currentTriangle);
+		//					else if (splitTriangles.inside_.empty() && splitTriangles.outside_.size() == 1)
+		//						currentNode = followOutsideNode(currentNode, *currentTriangle);
+		//					else
+		//					{
+		//						// Add both these sets of triangles to our working list for tree traversal...
+		//						workingTriangles.insert(workingTriangles.begin(), splitTriangles.inside_.begin(), splitTriangles.inside_.end());
+		//						workingTriangles.insert(workingTriangles.begin(), splitTriangles.outside_.begin(), splitTriangles.outside_.end());
+
+		//						// remove this triangle for our working list...
+		//						currentNode = 0;
+		//					}
+		//				}
+
+		//				// if the currentNode has been set to null, this means one or more working triangles have been added to the result.
+		//				// We need to remove this current triangle from the working triangles list.
+		//				if (!currentNode)
+		//					workingTriangles.erase(currentTriangle);
+		//			}
+		//		}
+		//	}
+
+		//	enum IOOPflag
+		//	{
+		//		outside,
+		//		inside,
+		//		onPlane
+		//	};
+
+		//	IOOPflag ioop(const vertex& v)
+		//	{
+		//		// Traverse to find out if this point is inside infront or onplane...
+		//		node* currentNode = root_.get();
+		//		while (currentNode)
+		//		{
+		//			double direction = directionFromPlane(currentNode->p(), currentNode->n(), v);
+		//			if (direction > 0)
+		//			{
+		//				if (currentNode->outside_)
+		//					currentNode = currentNode->outside_.get();
+		//				else
+		//					return IOOPflag::outside;
+		//			}
+		//			else if (direction < 0)
+		//			{
+		//				if (currentNode->inside_)
+		//					currentNode = currentNode->inside_.get();
+		//				else
+		//					return IOOPflag::inside;
+		//			}
+		//			else
+		//			{
+		//				if (pointWithinTriangle(currentNode->a_, currentNode->b_, currentNode->c_, v))
+		//					return IOOPflag::onPlane;
+
+		//				if (currentNode->inside_.get())
+		//					currentNode = currentNode->inside_.get();
+		//				else
+		//					return IOOPflag::outside;
+		//			}
+		//		}
+		//		throw std::exception("cannot deduce if point is inside or outside.");
+		//	}
+
+		//private:
+		//	node* followOutsideNode(node* nde, const triangle& tri)
+		//	{
+		//		if (nde->outside_)
+		//			return nde->outside_.get();
+		//		nde->outside_.reset(new node(tri));
+		//		return 0;
+		//	}
+		//	node* followInsideNode(node* nde, const triangle& tri)
+		//	{
+		//		if (nde->inside_)
+		//			return nde->inside_.get();
+		//		nde->inside_.reset(new node(tri));
+		//		return 0;
+		//	}
+
+		//	struct splitResult
+		//	{
+		//		std::list<triangle> outside_;
+		//		std::list<triangle> inside_;
+		//	};
+
+		//	bool validateTriangle(const triangle& t) const
+		//	{
+		//		return (!equals(t.a_, t.b_, 0.001) && !equals(t.a_, t.c_, 0.001) && !equals(t.c_, t.b_, 0.001));
+		//	}
+
+		//	splitResult splitTriangle(const vertex& splitInformation, const node* nde, const triangle& tri) const
+		//	{
+		//		splitResult result;
+
+		//		// If there is at least one point on the plane... since this is split, this must mean that the triangle straddles...
+		//		// calculate the single intersection point and the two triangles...
+		//		if (!splitInformation.x_ || !splitInformation.y_ || !splitInformation.z_)
+		//		{
+		//			// if vertex A is on the plane, intersection point must be along BC...
+		//			if (!splitInformation.x_)
+		//			{
+		//				vertex intersectionPoint = rayPlaneIntersection(tri.b_, unitise(subtract(tri.c_, tri.b_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				if (splitInformation.y_ > 0)
+		//				{
+		//					result.outside_.push_back(triangle(tri.a_, tri.b_, intersectionPoint));
+		//					result.inside_.push_back(triangle(intersectionPoint, tri.c_, tri.a_));
+		//				}
+		//				else
+		//				{
+		//					result.inside_.push_back(triangle(tri.a_, tri.b_, intersectionPoint));
+		//					result.outside_.push_back(triangle(intersectionPoint, tri.c_, tri.a_));
+		//				}
+		//			}
+		//			// if vertex B is on the plane, intersection point must be along CA...
+		//			else if (!splitInformation.y_)
+		//			{
+		//				vertex intersectionPoint = rayPlaneIntersection(tri.c_, unitise(subtract(tri.a_, tri.c_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				if (splitInformation.z_ > 0)
+		//				{
+		//					result.outside_.push_back(triangle(tri.b_, tri.c_, intersectionPoint));
+		//					result.inside_.push_back(triangle(intersectionPoint, tri.a_, tri.b_));
+		//				}
+		//				else
+		//				{
+		//					result.inside_.push_back(triangle(tri.b_, tri.c_, intersectionPoint));
+		//					result.outside_.push_back(triangle(intersectionPoint, tri.a_, tri.b_));
+		//				}
+		//			}
+		//			// otherwise C must be on the plane, intersection point must be along AB...
+		//			else if (!splitInformation.z_)
+		//			{
+		//				vertex intersectionPoint = rayPlaneIntersection(tri.a_, unitise(subtract(tri.b_, tri.a_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				if (splitInformation.x_ > 0)
+		//				{
+		//					result.outside_.push_back(triangle(tri.c_, tri.a_, intersectionPoint));
+		//					result.inside_.push_back(triangle(intersectionPoint, tri.b_, tri.c_));
+		//				}
+		//				else
+		//				{
+		//					result.inside_.push_back(triangle(tri.c_, tri.a_, intersectionPoint));
+		//					result.outside_.push_back(triangle(intersectionPoint, tri.b_, tri.c_));
+		//				}
+		//			}
+		//			else
+		//				throw std::exception("Unable to split triangle");
+		//		}
+		//		else
+		//		{
+		//			// Otherwise this triangle straddles the plane along two edges... resulting in 3 triangles...
+		//			if ((splitInformation.x_ > 0 && splitInformation.y_ > 0) || (splitInformation.x_ < 0 && splitInformation.y_ < 0))
+		//			{
+		//				vertex intersection1 = rayPlaneIntersection(tri.b_, unitise(subtract(tri.c_, tri.b_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				vertex intersection2 = rayPlaneIntersection(tri.c_, unitise(subtract(tri.a_, tri.c_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+
+		//				result.outside_.push_back(triangle(tri.a_, tri.b_, intersection1));
+		//				result.inside_.push_back(triangle(intersection1, tri.c_, intersection2));
+		//				result.inside_.push_back(triangle(intersection2, tri.a_, intersection1));
+		//			}
+		//			else if ((splitInformation.y_ > 0 && splitInformation.z_ > 0) || (splitInformation.y_ < 0 && splitInformation.z_ < 0))
+		//			{
+		//				vertex intersection1 = rayPlaneIntersection(tri.c_, unitise(subtract(tri.a_, tri.c_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				vertex intersection2 = rayPlaneIntersection(tri.a_, unitise(subtract(tri.b_, tri.a_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+
+		//				result.outside_.push_back(triangle(tri.b_, tri.c_, intersection1));
+		//				result.inside_.push_back(triangle(intersection1, tri.a_, intersection2));
+		//				result.inside_.push_back(triangle(intersection2, tri.b_, intersection1));
+		//			}
+		//			else if ((splitInformation.x_ > 0 && splitInformation.z_ > 0) || (splitInformation.x_ < 0 && splitInformation.z_ < 0))
+		//			{
+		//				vertex intersection1 = rayPlaneIntersection(tri.a_, unitise(subtract(tri.b_, tri.a_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+		//				vertex intersection2 = rayPlaneIntersection(tri.b_, unitise(subtract(tri.c_, tri.b_)), nde->p(), nde->n(), dot(tri.b_, nde->n()));
+
+		//				result.outside_.push_back(triangle(tri.c_, tri.a_, intersection1));
+		//				result.inside_.push_back(triangle(intersection1, tri.b_, intersection2));
+		//				result.inside_.push_back(triangle(intersection2, tri.c_, intersection1));
+		//			}
+		//			else
+		//				throw std::exception("Unable to split triangle");
+		//		}
+
+		//		for (std::list<triangle>::iterator itr = result.inside_.begin(); itr != result.inside_.end();)
+		//		{
+		//			if (!validateTriangle(*itr))
+		//				itr = result.inside_.erase(itr);
+		//			else
+		//				++itr;
+		//		}
+		//		for (std::list<triangle>::iterator itr = result.outside_.begin(); itr != result.outside_.end();)
+		//		{
+		//			if (!validateTriangle(*itr))
+		//				itr = result.outside_.erase(itr);
+		//			else
+		//				++itr;
+		//		}
+		//		return result;
+		//	}
+
+		//	
+		//	std::unique_ptr<node> root_;
+		//};
 
 		// delaunay...
 		namespace Delaunay
@@ -777,14 +1219,18 @@ namespace csg
 				{
 					bsp::IOOPflag ioopFlag = ioopCheck.ioop(centroid(tri.a_, tri.b_, tri.c_));
 
-					if (ioopFlag == bsp::IOOPflag::outside)
-						outside_.push_back(tri);
-					else if (ioopFlag == bsp::IOOPflag::inside)
-						inside_.push_back(tri);
-					else if (ioopFlag == bsp::IOOPflag::onPlane)
-						onPlane_.push_back(tri);
-					else
-						throw std::exception("unable to deduce ioop.");
+					#pragma omp critical
+					{
+						if (ioopFlag == bsp::IOOPflag::outside)
+							outside_.push_back(tri);
+						else if (ioopFlag == bsp::IOOPflag::inside)
+							inside_.push_back(tri);
+						else if (ioopFlag == bsp::IOOPflag::onPlane)
+							onPlane_.push_back(tri);
+						else
+							throw std::exception("unable to deduce ioop.");
+					}
+					
 				}
 			};
 
@@ -842,13 +1288,18 @@ namespace csg
 
 					// populate our result...
 					const std::list<Delaunay::Triangle> triangles = tessellator.getTriangles();
-					for (std::list<Delaunay::Triangle>::const_iterator tItr = triangles.begin(); tItr != triangles.end(); ++tItr)
+
+					#pragma omp critical
 					{
-						triangle tri(projection.get3D(*tItr->a), projection.get3D(*tItr->b), projection.get3D(*tItr->c));
-						if (!equals(normal(tri), normal_))
-							flip(tri);
-						result.addTriangle(tri, bsp);
+						for (std::list<Delaunay::Triangle>::const_iterator tItr = triangles.begin(); tItr != triangles.end(); ++tItr)
+						{
+							triangle tri(projection.get3D(*tItr->a), projection.get3D(*tItr->b), projection.get3D(*tItr->c));
+							if (!equals(normal(tri), normal_))
+								flip(tri);
+							result.addTriangle(tri, bsp);
+						}
 					}
+					
 
 				}
 
@@ -913,6 +1364,9 @@ namespace csg
 				vertex normal_;
 				std::list<segment> intersections_;
 			};
+
+
+			
 
 
 			class triangleTriangle
@@ -1125,6 +1579,8 @@ namespace csg
 				const triangle* B_;
 			};
 
+			
+
 
 		}	// namespace intersection
 		
@@ -1207,12 +1663,26 @@ namespace csg
 
 			mergeIntersectTriangles(aTriangles, bTriangles);
 
-			// We then finalise the triangles... and prep mesh results...
+			// finalise all the triangles and get our total number of triangles...
+
+
+			// for each triangle check if it is inside/outside or onplane...
+
+
+
+			// put the triangles into the correct container...
+
+
+
+
+
+
+			// We then finalise the triangles... and prep mesh results... look at this threading... need better streamlining...
 			{
 				bsp bspB(B);
 				result.first.reset(new intersection::mergeIntersectResult());
 
-				#pragma omp parallel for
+				//#pragma omp parallel for
 				for (int t = 0; t < A.size(); ++t)
 				{
 					if (aTriangles[t].needsFinalising())
@@ -1225,7 +1695,7 @@ namespace csg
 				bsp bspA(A);
 				result.second.reset(new intersection::mergeIntersectResult());
 
-				#pragma omp parallel for
+				//#pragma omp parallel for
 				for (int t = 0; t < B.size(); ++t)
 				{
 					if (bTriangles[t].needsFinalising())
@@ -1234,6 +1704,54 @@ namespace csg
 						result.second->addTriangle(*bTriangles[t].getTriangle(), bspA);
 				}
 			}
+		}
+
+		void halfSpace(const mesh& M, const vertex& p, const vertex& n)
+		{
+			//std::shared_ptr<mesh> result(new mesh);
+
+			std::list<triangle> result;
+
+			// for each triangle see if it is instersected by the plane...
+			//#pragma omp parallel for
+			for (int t = 0; t < M.size(); ++t)
+			{
+				impl::intersection::trianglePlane tp(&M[t], p, n);
+
+				if (tp.entirelyOutside())
+					continue;
+				else if (tp.entirelyInside())
+				{
+					//#pragma omp critical
+					{
+						result.push_back(M[t]);
+					}
+				}
+				else
+				{
+					// split the triangle...
+
+				}
+			}
+
+
+			// if so split it a keep track of the intersection points and edges (for constraints)...
+
+			// keep all the triangles on the correct side of the plane...
+
+			// tessellate the intersection points and constraints...
+
+			// create bsp to deduce which triangles are in the original mesh...
+
+
+			//std::vector<impl::intersection::retessellatedTriangle> triangles(A.size(), impl::intersection::retessellatedTriangle());
+			//for (int t = 0; t < A.size(); ++t)
+			//	triangles[t] = impl::intersection::retessellatedTriangle(&A[t], impl::normal(A[t]));
+
+			// for each triangle see which side of the plane it is on...
+
+
+
 		}
 
 	}
@@ -1260,20 +1778,47 @@ namespace csg
 		return result;
 	}
 
-	/*std::shared_ptr<mesh> Union(const mesh& a, std::vector<mesh>& b)
+	std::shared_ptr<mesh> Union(const mesh& a, const mesh& b)
 	{
-		return std::shared_ptr<mesh>();
+		impl::mergeResult abMerge;
+		impl::merge(a, b, abMerge);
+
+		// We then need to construct the final mesh from the result...
+		std::shared_ptr<mesh> result(new mesh());
+
+		// outside of A...
+		result->insert(result->end(), abMerge.first->outside_.begin(), abMerge.first->outside_.end());
+
+		// outside of B...
+		result->insert(result->end(), abMerge.second->outside_.begin(), abMerge.second->outside_.end());
+
+		return result;
 	}
 
-	std::shared_ptr<mesh> Intersection(const mesh& a, std::vector<mesh>& b)
+	std::shared_ptr<mesh> Intersection(const mesh& a, const mesh& b)
 	{
-		return std::shared_ptr<mesh>();
-	}*/
+		impl::mergeResult abMerge;
+		impl::merge(a, b, abMerge);
 
-	/*std::shared_ptr<mesh> HalfSpace(const mesh& a, vertex& p, vertex& n)
+		// We then need to construct the final mesh from the result...
+		std::shared_ptr<mesh> result(new mesh());
+
+		// outside of A...
+		result->insert(result->end(), abMerge.first->inside_.begin(), abMerge.first->inside_.end());
+
+		// outside of B...
+		result->insert(result->end(), abMerge.second->inside_.begin(), abMerge.second->inside_.end());
+
+		return result;
+	}
+
+	std::shared_ptr<mesh> HalfSpace(const mesh& A, vertex& p, vertex& n)
 	{
+		
+
+
 		return std::shared_ptr<mesh>();
-	}*/
+	}
 
 }
 

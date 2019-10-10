@@ -4,7 +4,7 @@
 int main(int argc, char** argv)
 {
 	// load in two cubes...
-	std::shared_ptr<csg::mesh> A = obj2csg::read("cube.obj");
+	std::shared_ptr<csg::mesh> A = obj2csg::read("sphere.obj");
 	std::shared_ptr<csg::mesh> B = obj2csg::read("cube.obj");
 
 	// translate the B 
@@ -22,12 +22,9 @@ int main(int argc, char** argv)
 			t.c_.z_ += 0.5;
 		});
 
-	// spit out the translated...
-	//A->insert(A->end(), B->begin(), B->end());
-	//obj2csg::write("mid.obj", *A);
-
-	std::shared_ptr<csg::mesh> difference = csg::Difference(*A, *B);
-	obj2csg::write("AdiffB.obj", *difference);
+	obj2csg::write("AdiffB.obj", *csg::Difference(*A, *B));
+	obj2csg::write("AunionB.obj", *csg::Union(*A, *B));
+	obj2csg::write("AintersectB.obj", *csg::Intersection(*A, *B));
 
 	return 0;
 }
