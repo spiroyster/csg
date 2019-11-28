@@ -268,15 +268,20 @@ namespace csg
 					return calculateIntersectionEdge(split.i_, split.j_, result);
 				}
 
-				bool calculateCoplanarIntersection(std::pair<std::list<segment>, std::list<segment>>& result, double tolerance) const
+				bool calculateCoplanarIntersection(std::pair<std::list<segment>, std::list<segment>>& result) const
 				{
-					// Use 2D boolean operations...
+					segment intersectingSegment;
+					if (calculateIntersectionEdge(B_->a_, B_->b_, intersectingSegment)) { result.first.push_back(intersectingSegment); }
+					if (calculateIntersectionEdge(B_->b_, B_->c_, intersectingSegment)) { result.first.push_back(intersectingSegment); }
+					if (calculateIntersectionEdge(B_->c_, B_->a_, intersectingSegment)) { result.first.push_back(intersectingSegment); }
 
+					triangleTriangle ba(*B_, *A_);
+					if (ba.calculateIntersectionEdge(A_->a_, A_->b_, intersectingSegment)) { result.second.push_back(intersectingSegment); }
+					if (ba.calculateIntersectionEdge(A_->b_, A_->c_, intersectingSegment)) { result.second.push_back(intersectingSegment); }
+					if (ba.calculateIntersectionEdge(A_->c_, A_->a_, intersectingSegment)) { result.second.push_back(intersectingSegment); }
 
-					return false;
-
-
-
+					assert((result.first.empty() && result.second.empty()) || (!result.first.empty() && !result.second.empty()));
+					return !result.first.empty() || !result.second.empty();
 				}
 
 
@@ -931,7 +936,7 @@ namespace csg
 					if (tt.onPlane())
 					{
 						std::pair<std::list<segment>, std::list<segment>> coplanarResult;
-						if (tt.calculateCoplanarIntersection(coplanarResult, tolerance))
+						if (tt.calculateCoplanarIntersection(coplanarResult))
 						{
 							#pragma omp critical
 							{
