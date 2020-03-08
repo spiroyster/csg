@@ -5,35 +5,64 @@
 
 namespace
 {
-	/*std::shared_ptr<csg::mesh> read(const std::string& filename)
+	class check
 	{
-		std::shared_ptr<objio::mesh> m = objio::readFile(filename);
+	public:
 
-		std::shared_ptr<csg::mesh> result(new csg::mesh);
+		static void Difference(const std::string& objA, const std::string& objB, const std::string& objExpected)
+		{
+			check c(objA, objB, objExpected);
+			std::shared_ptr<csg::mesh> result = csg::Difference(*c.a_, *c.b_);
+			c.validate(*result);
+		}
+		static void Union(const std::string& objA, const std::string& objB, const std::string& objExpected)
+		{
+			check c(objA, objB, objExpected);
+			std::shared_ptr<csg::mesh> result = csg::Union(*c.a_, *c.b_);
+			c.validate(*result);
+		}
+		static void Intersection(const std::string& objA, const std::string& objB, const std::string& objExpected)
+		{
+			check c(objA, objB, objExpected);
+			std::shared_ptr<csg::mesh> result = csg::Intersection(*c.a_, *c.b_);
+			c.validate(*result);
+		}
 
-		std::for_each(m->faces_.begin(), m->faces_.end(),
-			[&result, &m](const objio::face& f)
-			{
-				const objio::vector3& a = m->p_[f.vertices_[0].p_];
-				const objio::vector3& b = m->p_[f.vertices_[1].p_];
-				const objio::vector3& c = m->p_[f.vertices_[2].p_];
-				result->push_back(csg::triangle(csg::vertex(a.x_, a.y_, a.z_), csg::vertex(b.x_, b.y_, b.z_), csg::vertex(c.x_, c.y_, c.z_)));
-			});
+	private:
 
-		return result;
-	}*/
+		check(const std::string& objA, const std::string& objB, const std::string& objExpected)
+		{
+			// load in the meshes...
+			a_ = obj2csg::read(objA);
+			b_ = obj2csg::read(objB);
+			expected_ = obj2csg::read(objExpected);
+		}
+
+		void validate(const csg::mesh& testMesh)
+		{
+			// check the triangles are the same...
+			REQUIRE(testMesh.size() == expected_->size());
+
+			// check the vertices...
+			std::for_each(expected_->begin(), expected_->end(), 
+				[](const csg::vertex& v) 
+				{
+
+				
+				});
+
+		
+		}
+
+		std::shared_ptr<csg::mesh> a_;
+		std::shared_ptr<csg::mesh> b_;
+		std::shared_ptr<csg::mesh> expected_;
+	};
 
 
 }
 
-TEST_CASE("CSG offsetCube", "[csg_offsetCube_difference]")
-{
-	//std::shared_ptr<csg::mesh> A = obj2csg::read("cube.obj");
-	//std::shared_ptr<csg::mesh> B = obj2csg::read("cube.obj");
-
-
-
-}
+TEST_CASE("CSG offsetCube", "[csg_offsetCube_difference]") { check::Difference("cube.obj", "cubeOffset.obj", "cubeOffsetDifference.obj"); }
 
 
 //#define CATCH_CONFIG_MAIN

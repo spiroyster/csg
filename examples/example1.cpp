@@ -9,7 +9,6 @@ int main(int argc, char** argv)
 	try
 	{
 		// load in two cubes...
-		//std::shared_ptr<csg::mesh> A = obj2csg::read("sphere.obj");
 		std::shared_ptr<csg::mesh> A = obj2csg::read("cube.obj");
 		std::shared_ptr<csg::mesh> B = obj2csg::read("cube.obj");
 
