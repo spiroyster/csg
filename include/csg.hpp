@@ -26,6 +26,7 @@
 #define CSG_HPP
 
 #include <algorithm>
+#include <array>
 #include <assert.h>
 #include <limits>
 #include <list>
@@ -44,6 +45,7 @@ namespace csg
 	{
 		const static double pi = 3.14159265358979323846264338327950288;
 		const static double superTriangleScaling = 2000.0;
+		const static double defaultTolerance = 0.01;
 
 		// vertex operations...
 		static double magnitudeSquared(const vertex& v) { return (v.x_ * v.x_) + (v.y_ * v.y_) + (v.z_ * v.z_); }
@@ -1189,96 +1191,71 @@ namespace csg
 
 		return result;
 	}
-	
-	std::shared_ptr<mesh> HalfSpace(const mesh& m, const vertex& pP, const vertex& pN, double tolerance = 0.01)
+
+	namespace convenience
 	{
-		struct hsTriangle
+		std::string obj(const mesh& m)
 		{
-			hsTriangle() : triangle_(0) {}
-
-			hsTriangle(const triangle* tri) : triangle_(tri) {}
-			
-			const triangle* triangle_;
-			std::vector<triangle> splitTriangles_;
-			vertex normal_;
-		};
-
-		std::vector<hsTriangle> hsTriangles(m.size(), hsTriangle());
-		for (unsigned int t = 0; t < hsTriangles.size(); ++t) { hsTriangles[t] = hsTriangle(&m[t]); }
-
-		#pragma omp for
-		for (int t = 0; t < static_cast<int>(hsTriangles.size()); ++t)
-		{
-			if (!hsTriangles[t].IsValid())
-				continue;
-
-			impl::intersection::trianglePlane tp(&m[t], pP, pN, tolerance);
-
-			if (tp.outside() || tp.inside() || tp.onPlane())
-				continue;
-			else
+			std::ostringstream oss;
+			std::vector<std::array<unsigned int, 3>> faces;
+			oss << "# obj file. https://github.com/spiroyster/csg\n";
+			oss << "\n# points...\n"; 
+			unsigned int n = 1;
+			for (unsigned int tri = 0; tri < m.size(); ++tri, n += 3)
 			{
-				// Split the triangle, retain the split intersection points to cap the mesh.
-				impl::intersection::splitResult split = impl::intersection::splitTriangle(tp, m[t], workingTriangles[t].TriangleNormal(), pP, pN);
-
-				
-
-
-				/*segment intersectionEdge;
-				if (tp.calculateIntersection(intersectionEdge))
-					workingTriangles[t].AddIntersection(intersectionEdge);*/
+				oss << "v " << m[tri].a_.x_ << " " << m[tri].a_.y_ << " " << m[tri].a_.z_ << '\n';
+				oss << "v " << m[tri].b_.x_ << " " << m[tri].b_.y_ << " " << m[tri].b_.z_ << '\n';
+				oss << "v " << m[tri].c_.x_ << " " << m[tri].c_.y_ << " " << m[tri].c_.z_ << '\n';
+				faces.push_back({ { n, n + 1, n + 2 } });
 			}
+			oss << "\n# faces...\n";
+			std::for_each(faces.begin(), faces.end(), [&oss](const std::array<unsigned int, 3>& f) { oss << "f " << std::get<0>(f) << " " << std::get<1>(f) << " " << std::get<2>(f) << "\n"; });
+			return oss.str();
 		}
-
 	}
+	
+	//std::shared_ptr<mesh> HalfSpace(const mesh& m, const vertex& pP, const vertex& pN, double tolerance = 0.01)
+	//{
+	//	struct hsTriangle
+	//	{
+	//		hsTriangle() : triangle_(0) {}
 
-		/*	for (int t = 0; t < static_cast<int>(workingTriangles.size()); ++t)
-				workingTriangles[t].Retessellate(tolerance);
-*/
-			// deduce inside/outside
-			//bsp bspB(B, tolerance);
-			//for (int a = 0; a < static_cast<int>(aTriangles.size()); ++a)
-			//	aTriangles[a].AddToResult(bspB, result.first, bTriangles, AOnPlanePolicy, tolerance);
+	//		hsTriangle(const triangle* tri) : triangle_(tri) {}
+	//		
+	//		const triangle* triangle_;
+	//		std::vector<triangle> splitTriangles_;
+	//		vertex normal_;
+	//	};
+
+	//	std::vector<hsTriangle> hsTriangles(m.size(), hsTriangle());
+	//	for (unsigned int t = 0; t < hsTriangles.size(); ++t) { hsTriangles[t] = hsTriangle(&m[t]); }
+
+	//	#pragma omp for
+	//	for (int t = 0; t < static_cast<int>(hsTriangles.size()); ++t)
+	//	{
+	//		if (!hsTriangles[t].IsValid())
+	//			continue;
+
+	//		impl::intersection::trianglePlane tp(&m[t], pP, pN, tolerance);
+
+	//		if (tp.outside() || tp.inside() || tp.onPlane())
+	//			continue;
+	//		else
+	//		{
+	//			// Split the triangle, retain the split intersection points to cap the mesh.
+	//			impl::intersection::splitResult split = impl::intersection::splitTriangle(tp, m[t], workingTriangles[t].TriangleNormal(), pP, pN);
+
+	//			
 
 
+	//			/*segment intersectionEdge;
+	//			if (tp.calculateIntersection(intersectionEdge))
+	//				workingTriangles[t].AddIntersection(intersectionEdge);*/
+	//		}
+	//	}
 
-			
-			/*if (!bTriangles[b].IsValid())
-				continue;
+	//}
 
-			intersection::triangleTriangle tt(B[b], A[a], aTriangles[a].TriangleNormal(), tolerance);
-			bTriangles[b].SetClamped(tt.IsClamped());
-
-			if (!tt.intersects())
-				continue;
-			else if (tt.onPlane())
-			{
-				std::pair<std::list<segment>, std::list<segment>> coplanarResult;
-				if (tt.calculateCoplanarIntersection(coplanarResult))
-				{
-#pragma omp critical
-					{
-						aTriangles[a].AddCoplanarTriangleIntersection(b);
-						aTriangles[a].AddIntersections(coplanarResult.second);
-						bTriangles[b].AddCoplanarTriangleIntersection(a);
-						bTriangles[b].AddIntersections(coplanarResult.first);
-					}
-				}
-			}
-			else
-			{
-				segment intersectionEdge;
-				if (tt.calculateIntersection(intersectionEdge))
-				{
-#pragma omp critical
-					{
-						aTriangles[a].AddIntersection(intersectionEdge);
-						bTriangles[b].AddIntersection(intersectionEdge);
-					}
-				}
-			}*/
-
-		
 }
 
 #endif // CSG_HPP
