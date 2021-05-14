@@ -1,65 +1,22 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
-#include "..\include\csg.hpp"
-#include "..\examples\obj2csg.hpp"
+#include "../include/csg3.hpp"
+#include "jahoutf.hpp"
 
-//namespace
-//{
-//	class check
-//	{
-//	public:
-//
-//		static void Difference(const std::string& objA, const std::string& objB, const std::string& objExpected)
-//		{
-//			check c(objA, objB, objExpected);
-//			std::shared_ptr<csg::mesh> result = csg::Difference(*c.a_, *c.b_);
-//			c.validate(*result);
-//		}
-//		static void Union(const std::string& objA, const std::string& objB, const std::string& objExpected)
-//		{
-//			check c(objA, objB, objExpected);
-//			std::shared_ptr<csg::mesh> result = csg::Union(*c.a_, *c.b_);
-//			c.validate(*result);
-//		}
-//		static void Intersection(const std::string& objA, const std::string& objB, const std::string& objExpected)
-//		{
-//			check c(objA, objB, objExpected);
-//			std::shared_ptr<csg::mesh> result = csg::Intersection(*c.a_, *c.b_);
-//			c.validate(*result);
-//		}
-//
-//	private:
-//
-//		check(const std::string& objA, const std::string& objB, const std::string& objExpected)
-//		{
-//			// load in the meshes...
-//			a_ = obj2csg::read(objA);
-//			b_ = obj2csg::read(objB);
-//			expected_ = obj2csg::read(objExpected);
-//		}
-//
-//		void validate(const csg::mesh& testMesh)
-//		{
-//			// check the triangles are the same...
-//			REQUIRE(testMesh.size() == expected_->size());
-//
-//			// check the vertices...
-//			std::for_each(expected_->begin(), expected_->end(), 
-//				[](const csg::vertex& v) 
-//				{
-//
-//				
-//				});
-//
-//		
-//		}
-//
-//		std::shared_ptr<csg::mesh> a_;
-//		std::shared_ptr<csg::mesh> b_;
-//		std::shared_ptr<csg::mesh> expected_;
-//	};
-//
-//
-//}
+JAHOUTF_TEST_RUNNER { RUNALL }
 
-//TEST_CASE("CSG offsetCube", "[csg_offsetCube_difference]") { check::Difference("cube.obj", "cubeOffset.obj", "cubeOffsetDifference.obj"); }
+
+struct vertex_test_data
+{
+    csg::vertex a_, b_, expected_;
+    vertex_test_data(const csg::vertex& a, const csg::vertex& b, const csg::vertex& expected) : a_(a), b_(b), expected_(expected) {}
+};
+
+TEST_VALUES(impl, add, jahoutf::values<vertex_test_data>({
+    vertex_test_data(csg::vertex(), csg::vertex(), csg::vertex()),
+    vertex_test_data(csg::vertex(1.0, 0, 0), csg::vertex(), csg::vertex(1.0, 0, 0)),
+    vertex_test_data(csg::vertex(), csg::vertex(), csg::vertex())
+}))
+{
+    auto v = jahoutf_value();
+    EXPECT(csg::impl::equals(csg::impl::add(v.a_, v.b_), v.expected_))
+}
+

@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <array>
 #include <assert.h>
+#include <cmath>
+#include <sstream>
 #include <limits>
 #include <list>
 #include <memory>
@@ -87,10 +89,12 @@ namespace csg
 			else
 				return t.c_;
 		}
-		static void flip(triangle& t) { vertex tmp = t.c_; t.c_ = t.a_; t.a_ = tmp; }
-
-		enum ioop { inside, outside, onPlane };
-
+		
+		namespace ioop
+		{
+			enum ioop { inside, outside, onPlane };
+		}
+		
 		namespace sanitise
 		{
 			bool isValid(const triangle& t, double tolerance) { return (!equals(t.a_, t.b_, tolerance) && !equals(t.a_, t.c_, tolerance) && !equals(t.b_, t.c_, tolerance) && !std::isnan(normal(t).x_)); }
@@ -179,7 +183,7 @@ namespace csg
 				if (!std::isnan(dotrDpN) && dotrDpN)
 					return rayPlaneIntersection(i, ijUnitised, pP, pN, dotrDpN);
 				else
-					throw std::exception("no edge plane intersection.");
+					throw std::runtime_error("no edge plane intersection.");
 			}
 
 			void validateSplitTriangles(splitResult& result, const triangle& originalTriangle, double tolerance)
@@ -279,7 +283,7 @@ namespace csg
 					}
 				}
 				else
-					throw std::exception("cannot split triangle.");
+					throw std::runtime_error("cannot split triangle.");
 
 				// assert the correct winding...
 				std::for_each(result.inside_.begin(), result.inside_.end(), [&tN, &intersectionInfo](triangle& t)
@@ -443,7 +447,7 @@ namespace csg
 				node(const triangle& t) : triangle(t.a_, t.b_, t.c_), normal_(normal(t))
 				{
 					if (std::isnan(normal_.x_) || std::isnan(normal_.y_) || std::isnan(normal_.z_))
-						throw std::exception("unable to calculate bsp node normal.");
+						throw std::runtime_error("unable to calculate bsp node normal.");
 				}
 				vertex triangleIntersection(const triangle& t) const { return vertex(distanceFromPlane(p(), n(), t.a_), distanceFromPlane(p(), n(), t.b_), distanceFromPlane(p(), n(), t.c_)); }
 				vertex calculateIntersection(const vertex& a, const vertex& b) { vertex rD = unitise(subtract(b, a)); return rayPlaneIntersection(a, rD, a_, normal_, dot(rD, normal_)); }
@@ -458,7 +462,7 @@ namespace csg
 			// assume all triangles are well-formed...
 			bsp(const mesh& m, double tolerance) { construct(m, tolerance); }
 			
-			ioop ioop(const vertex& v, double onPlaneTolerance) const
+			ioop::ioop ioop(const vertex& v, double onPlaneTolerance) const
 			{
 				unsigned int debugNum = 0;
 
@@ -470,24 +474,24 @@ namespace csg
 
 					if (d == 0)
 					{
-						if (pointWithinTriangle(currentNode->a_, currentNode->b_, currentNode->c_, v)) { return ioop::onPlane; }
+						if (pointWithinTriangle(currentNode->a_, currentNode->b_, currentNode->c_, v)) { return ioop::ioop::onPlane; }
 						else if (currentNode->inside_.get()) { currentNode = currentNode->inside_.get(); }
-						else { return ioop::outside; }
+						else { return ioop::ioop::outside; }
 					}
 					else if (d > 0)
 					{
 						if (currentNode->outside_) { currentNode = currentNode->outside_.get(); }
-						else { return ioop::outside; }
+						else { return ioop::ioop::outside; }
 					}
 					else if (d < 0)
 					{
 						if (currentNode->inside_) { currentNode = currentNode->inside_.get(); }
-						else { return ioop::inside; }
+						else { return ioop::ioop::inside; }
 					}
 
 					++debugNum;
 				}
-				throw std::exception("cannot deduce if point is inside or outside.");
+				throw std::runtime_error("cannot deduce if point is inside or outside.");
 			}
 
 		private:
@@ -1057,13 +1061,13 @@ namespace csg
 			{
 				// clamp back to correct plane?
 
-				const ioop& ioopResult = bsp.ioop(centroid(tri.a_, tri.b_, tri.c_), onPlaneTolerance);
+				const ioop::ioop& ioopResult = bsp.ioop(centroid(tri.a_, tri.b_, tri.c_), onPlaneTolerance);
 
 				#pragma omp critical
 				{
-					if (ioopResult == ioop::inside)
+					if (ioopResult == ioop::ioop::inside)
 						result.inside_.push_back(tri);
-					else if (ioopResult == ioop::outside)
+					else if (ioopResult == ioop::ioop::outside)
 						result.outside_.push_back(tri);
 				}
 			}

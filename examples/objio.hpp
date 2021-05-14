@@ -26,7 +26,7 @@
 #ifndef QDCSG_OBJIO
 #define QDCSG_OBJIO
 
-#include "..\include\csg.hpp"
+#include "../include/csg.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -117,7 +117,7 @@ namespace objio
 				return str.find("//") != std::string::npos ? vertex::pn(stoi(vertexIndexes[0]) - 1, stoi(vertexIndexes[1]) - 1) : vertex::pt(stoi(vertexIndexes[0]) - 1, stoi(vertexIndexes[1]) - 1);
 			else if (vertexIndexes.size() == 3)
 				return vertex::pnt(stoi(vertexIndexes[0]) - 1, stoi(vertexIndexes[2]) - 1, stoi(vertexIndexes[1]) - 1);			
-			throw std::exception("Incorrect number of vertex indexes.");
+			throw std::runtime_error("Incorrect number of vertex indexes.");
 		}
 
 		int p_, n_, uv_, c_;
@@ -216,7 +216,7 @@ namespace objio
 					colours.push_back(vector3(stod(vertex[0]), stod(vertex[1]), stod(vertex[2])));
 				}
 				else
-					throw std::exception("Number of components in vertex \"v\" not supported.");
+					throw std::runtime_error("Number of components in vertex \"v\" not supported.");
 
 				continue;
 			}
@@ -244,7 +244,7 @@ namespace objio
 	{
 		std::ifstream file(filename);
 		if (!file)
-			throw std::exception("Unable to read file");
+			throw std::runtime_error("Unable to read file");
 
 		std::string str;
 
@@ -331,7 +331,7 @@ namespace objio
 		if (file)
 			file << write(mesh);
 		else
-			std::exception("Unable to save obj file.");
+			std::runtime_error("Unable to save obj file.");
 	}
 
 }
