@@ -1,4 +1,4 @@
-#include "../include/csg2.hpp"
+#include "../include/csg3.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -44,16 +44,19 @@ int main(int argc, char** argv)
 		
 		
 		std::vector<csg::triangle> result;
-		result.reserve(m.Union().count_);
+		
+		csg::mesh_union u(m);
+		
+		// result.reserve(m.Union().count_);
 
 		
 
-		m.Union([&result](unsigned int index, const csg::triangle& t) 
-		{
-			//csg::interpolate(csg::barycentric(t, ), )
+		// m.Union([&result](unsigned int index, const csg::triangle& t) 
+		// {
+		// 	//csg::interpolate(csg::barycentric(t, ), )
 
-			result.push_back(t); 
-		});
+		// 	result.push_back(t); 
+		// });
 
 
 		
